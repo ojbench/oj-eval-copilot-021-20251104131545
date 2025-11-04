@@ -1,75 +1,83 @@
 #include <iostream>
 #include <vector>
 #include <algorithm>
-#include <queue>
-#include <cmath>
 #include "game.h"
 
 using namespace std;
 
 char ops[] = {'A', 'B', 'C', 'D', 'E'};
 
-// Greedy BFS to find best immediate move
-char findBestMove(Game* game, int depth = 1) {
-    int bestScore = -1;
-    char bestOp = 'C';
-    int bestHits = 0;
-    
-    for (char op : ops) {
-        Game::Save* save = game->save();
-        int reward = game->play(op);
-        int hits = game->bricksHit();
+// 2-level lookahead to balance speed and quality
+char findBestMove(Game* game) {
+    struct MoveScore {
+        char op;
+        int totalScore;
+        int hits;
         
-        // Prefer moves that hit bricks, then maximize reward
-        if (hits > bestHits || (hits == bestHits && reward > bestScore)) {
-            bestScore = reward;
-            bestOp = op;
-            bestHits = hits;
+        bool operator<(const MoveScore& other) const {
+            if (hits != other.hits) return hits > other.hits;
+            return totalScore > other.totalScore;
+        }
+    };
+    
+    vector<MoveScore> scores;
+    
+    for (char op1 : ops) {
+        Game::Save* save1 = game->save();
+        int r1 = game->play(op1);
+        int h1 = game->bricksHit();
+        
+        int bestFuture = 0;
+        if (game->bricksRemaining() > 0) {
+            for (char op2 : ops) {
+                Game::Save* save2 = game->save();
+                int r2 = game->play(op2);
+                bestFuture = max(bestFuture, r2);
+                game->load(save2);
+                game->erase(save2);
+            }
         }
         
-        game->load(save);
-        game->erase(save);
+        scores.push_back({op1, r1 * 2 + bestFuture, h1});
+        
+        game->load(save1);
+        game->erase(save1);
     }
     
-    return bestOp;
+    sort(scores.begin(), scores.end());
+    return scores[0].op;
 }
 
 int main() {
     Game *game = new Game(cin);
     
     vector<char> operations;
-    int total_bricks = game->bricksTotal();
     int prev_hits = 0;
-    int no_progress_count = 0;
+    int stuck_count = 0;
     
-    // Try to hit all bricks
     while (game->bricksRemaining() > 0 && operations.size() < (size_t)game->m) {
-        char op = findBestMove(game, 1);
+        char op;
+        
+        if (stuck_count > 25) {
+            // Try systematic exploration when stuck
+            op = ops[(operations.size() / 5) % 5];
+            stuck_count = 0;
+        } else {
+            op = findBestMove(game);
+        }
+        
         game->play(op);
         operations.push_back(op);
         
         int current_hits = game->bricksHit();
         if (current_hits == prev_hits) {
-            no_progress_count++;
-            // If no progress for many moves, try random exploration
-            if (no_progress_count > 20) {
-                op = ops[operations.size() % 5];
-                game->play(op);
-                operations.push_back(op);
-                no_progress_count = 0;
-            }
+            stuck_count++;
         } else {
-            no_progress_count = 0;
+            stuck_count = 0;
             prev_hits = current_hits;
-        }
-        
-        // Early exit if we've tried too many operations
-        if (operations.size() > (size_t)(game->m * 0.8)) {
-            break;
         }
     }
     
-    // Output all operations
     for (char op : operations) {
         cout << op << endl;
     }
