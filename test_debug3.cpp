@@ -1,4 +1,5 @@
 #include <iostream>
+#include <fstream>
 #include <vector>
 #include <algorithm>
 #include "game.h"
@@ -7,8 +8,7 @@ using namespace std;
 
 char ops[] = {'A', 'B', 'C', 'D', 'E'};
 
-// 2-level lookahead to balance speed and quality
-char findBestMove(Game* game) {
+char findBest(Game* game) {
     struct MoveScore {
         char op;
         int totalScore;
@@ -39,48 +39,32 @@ char findBestMove(Game* game) {
         }
         
         scores.push_back({op1, r1 + bestFuture, h1});
+        cerr << "Op " << op1 << ": total=" << (r1 + bestFuture) << " (r1=" << r1 << ", future=" << bestFuture << ", hits=" << h1 << ")" << endl;
         
         game->load(save1);
         game->erase(save1);
     }
     
     sort(scores.begin(), scores.end());
+    cerr << "Best: " << scores[0].op << endl;
     return scores[0].op;
 }
 
 int main() {
-    Game *game = new Game(cin);
+    auto mapfile = ifstream("/workspace/data/021/testcases/naive.in");
+    Game *game = new Game(mapfile);
     
-    vector<char> operations;
-    int prev_hits = 0;
-    int stuck_count = 0;
+    cerr << "=== Move 1 ===" << endl;
+    char op1 = findBest(game);
+    game->play(op1);
+    cout << op1 << endl;
     
-    while (game->bricksRemaining() > 0 && operations.size() < (size_t)game->m) {
-        char op;
-        
-        if (stuck_count > 25) {
-            // Try systematic exploration when stuck
-            op = ops[(operations.size() / 5) % 5];
-            stuck_count = 0;
-        } else {
-            op = findBestMove(game);
-        }
-        
-        game->play(op);
-        operations.push_back(op);
-        
-        int current_hits = game->bricksHit();
-        if (current_hits == prev_hits) {
-            stuck_count++;
-        } else {
-            stuck_count = 0;
-            prev_hits = current_hits;
-        }
-    }
+    cerr << "\n=== Move 2 (remaining=" << game->bricksRemaining() << ") ===" << endl;
+    char op2 = findBest(game);
+    game->play(op2);
+    cout << op2 << endl;
     
-    for (char op : operations) {
-        cout << op << endl;
-    }
+    cerr << "\nFinal remaining: " << game->bricksRemaining() << endl;
     
     delete game;
     return 0;

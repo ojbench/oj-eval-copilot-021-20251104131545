@@ -1,4 +1,5 @@
 #include <iostream>
+#include <fstream>
 #include <vector>
 #include <algorithm>
 #include "game.h"
@@ -7,7 +8,6 @@ using namespace std;
 
 char ops[] = {'A', 'B', 'C', 'D', 'E'};
 
-// 2-level lookahead to balance speed and quality
 char findBestMove(Game* game) {
     struct MoveScore {
         char op;
@@ -49,34 +49,23 @@ char findBestMove(Game* game) {
 }
 
 int main() {
-    Game *game = new Game(cin);
+    auto mapfile = ifstream("/workspace/data/021/testcases/1.in");
+    Game *game = new Game(mapfile);
+    
+    cerr << "Total bricks: " << game->bricksTotal() << endl;
     
     vector<char> operations;
-    int prev_hits = 0;
-    int stuck_count = 0;
+    int totalReward = 0;
     
     while (game->bricksRemaining() > 0 && operations.size() < (size_t)game->m) {
-        char op;
-        
-        if (stuck_count > 25) {
-            // Try systematic exploration when stuck
-            op = ops[(operations.size() / 5) % 5];
-            stuck_count = 0;
-        } else {
-            op = findBestMove(game);
-        }
-        
-        game->play(op);
+        char op = findBestMove(game);
+        int r = game->play(op);
+        totalReward += r;
         operations.push_back(op);
-        
-        int current_hits = game->bricksHit();
-        if (current_hits == prev_hits) {
-            stuck_count++;
-        } else {
-            stuck_count = 0;
-            prev_hits = current_hits;
-        }
+        cerr << "Op #" << operations.size() << ": " << op << ", reward=" << r << ", total=" << totalReward << ", remaining=" << game->bricksRemaining() << endl;
     }
+    
+    cerr << "\nFinal: " << operations.size() << " operations, total reward=" << totalReward << endl;
     
     for (char op : operations) {
         cout << op << endl;
