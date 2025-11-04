@@ -1,73 +1,119 @@
 #include <iostream>
 #include <vector>
 #include <algorithm>
+#include <queue>
 #include "game.h"
 
 using namespace std;
 
 char ops[] = {'A', 'B', 'C', 'D', 'E'};
 
-// Adaptive lookahead based on remaining bricks
-char findBestMove(Game* game) {
-    struct MoveScore {
-        char op;
-        int totalScore;
-        int hits;
+// Beam search to explore multiple paths
+struct BeamNode {
+    vector<char> path;
+    int totalReward;
+    int hits;
+    Game::Save* save;
+    
+    bool operator<(const BeamNode& other) const {
+        if (totalReward != other.totalReward) return totalReward < other.totalReward;
+        return hits < other.hits;
+    }
+};
+
+char findBestMoveBeam(Game* game) {
+    int beamWidth = 3;  // Keep top 3 paths
+    int depth = 4;  // Search 4 moves ahead
+    
+    priority_queue<BeamNode> beam;
+    beam.push({{}, 0, game->bricksHit(), game->save()});
+    
+    for (int d = 0; d < depth && !beam.empty(); d++) {
+        priority_queue<BeamNode> nextBeam;
+        vector<BeamNode> currentLevel;
         
-        bool operator<(const MoveScore& other) const {
-            if (totalScore != other.totalScore) return totalScore > other.totalScore;
-            return hits > other.hits;
+        // Get all nodes from current beam
+        while (!beam.empty()) {
+            currentLevel.push_back(beam.top());
+            beam.pop();
         }
-    };
-    
-    vector<MoveScore> scores;
-    int remaining = game->bricksRemaining();
-    
-    // Adaptive depth: use deeper search when fewer bricks remain
-    bool useDeepSearch = (remaining < 100) || (remaining < game->bricksTotal() / 4);
-    
-    for (char op1 : ops) {
-        Game::Save* save1 = game->save();
-        int r1 = game->play(op1);
-        int h1 = game->bricksHit();
         
-        int bestPath = r1;
-        
-        if (game->bricksRemaining() > 0) {
-            for (char op2 : ops) {
-                Game::Save* save2 = game->save();
-                int r2 = game->play(op2);
-                
-                int path2 = r1 + r2;
-                
-                if (useDeepSearch && game->bricksRemaining() > 0) {
-                    // Level 3
-                    int best3 = 0;
-                    for (char op3 : ops) {
-                        Game::Save* save3 = game->save();
-                        int r3 = game->play(op3);
-                        best3 = max(best3, r3);
-                        game->load(save3);
-                        game->erase(save3);
-                    }
-                    path2 += best3;
-                }
-                
-                bestPath = max(bestPath, path2);
-                
-                game->load(save2);
-                game->erase(save2);
+        // Expand each node
+        for (auto& node : currentLevel) {
+            game->load(node.save);
+            
+            if (game->bricksRemaining() == 0) {
+                game->erase(node.save);
+                continue;
             }
+            
+            for (char op : ops) {
+                Game::Save* newSave = game->save();
+                int reward = game->play(op);
+                
+                BeamNode newNode;
+                newNode.path = node.path;
+                newNode.path.push_back(op);
+                newNode.totalReward = node.totalReward + reward;
+                newNode.hits = game->bricksHit();
+                newNode.save = game->save();
+                
+                nextBeam.push(newNode);
+                
+                game->load(newSave);
+                game->erase(newSave);
+            }
+            
+            game->erase(node.save);
         }
         
-        scores.push_back({op1, bestPath, h1});
+        // Keep only top beamWidth nodes
+        beam = priority_queue<BeamNode>();
+        for (int i = 0; i < beamWidth && !nextBeam.empty(); i++) {
+            beam.push(nextBeam.top());
+            nextBeam.pop();
+        }
         
-        game->load(save1);
-        game->erase(save1);
+        // Clean up remaining nodes
+        while (!nextBeam.empty()) {
+            game->erase(nextBeam.top().save);
+            nextBeam.pop();
+        }
     }
     
-    sort(scores.begin(), scores.end());
-    return scores[0].op;
+    // Get best path
+    if (beam.empty()) return 'C';
+    
+    BeamNode best = beam.top();
+    
+    // Clean up
+    while (!beam.empty()) {
+        game->erase(beam.top().save);
+        beam.pop();
+    }
+    
+    return best.path.empty() ? 'C' : best.path[0];
+}
+
+// Simple greedy for when beam is too slow
+char findBestMoveGreedy(Game* game) {
+    int bestScore = -1;
+    char bestOp = 'C';
+    
+    for (char op : ops) {
+        Game::Save* save = game->save();
+        int r = game->play(op);
+        
+        if (r > bestScore) {
+            bestScore = r;
+            bestOp = op;
+        }
+        
+        game->load(save);
+        game->erase(save);
+    }
+    
+    return bestOp;
 }
 
 int main() {
@@ -80,12 +126,18 @@ int main() {
     while (game->bricksRemaining() > 0 && operations.size() < (size_t)game->m) {
         char op;
         
-        if (stuck_count > 30) {
-            // When stuck, try exploration
+        int remaining = game->bricksRemaining();
+        
+        if (stuck_count > 40) {
+            // Exploration
             op = ops[(operations.size() / 10) % 5];
             stuck_count = 0;
+        } else if (remaining < 50 || remaining < game->bricksTotal() / 8) {
+            // Use beam search for endgame or when few bricks left
+            op = findBestMoveBeam(game);
         } else {
-            op = findBestMove(game);
+            // Use greedy for speed
+            op = findBestMoveGreedy(game);
         }
         
         game->play(op);
